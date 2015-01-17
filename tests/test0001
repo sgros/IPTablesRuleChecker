@@ -1,0 +1,4 @@
+iptables -F OUTPUT
+iptables -A OUTPUT -m state --state ESTABLISHED -j ACCEPT
+iptables -A OUTPUT -j REJECT
+

@@ -1,0 +1,1 @@
+iptables -A INPUT -t filter -m iprange ! --src-range 10.1.1.90-10.1.1.100  -p tcp --dport 22 -j REJECT

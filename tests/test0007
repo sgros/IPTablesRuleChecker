@@ -1,0 +1,1 @@
+iptables -A OUTPUT -p tcp --dport ssh -j REJECT
