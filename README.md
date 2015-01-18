@@ -18,9 +18,11 @@ Some TODO items:
 
 3. Modularizing checks, so that they can be easily added
 
-4. Better design and architecture, more in line with Python
+4. Automate tests. Now they are run and checked manually.
 
-5. More Pythonesque code :) 
+5. Better design and architecture, more in line with Python
+
+6. More Pythonesque code :) 
 
 As for the last two points, I would very gladly hear comments
 from Python experts!

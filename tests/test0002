@@ -1,3 +1,0 @@
-iptables -F INPUT
-iptables -A INPUT -m state --state ESTABLISHED -j ACCEPT
-iptables -A INPUT -j REJECT
