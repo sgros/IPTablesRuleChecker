@@ -9,7 +9,7 @@ from collections import OrderedDict
 class ContradictingParameters(Exception): pass
 class ForbiddedCommand(Exception): pass
 class UnexpectedCondition(Exception): pass
-class UnparsableLine(Exception): pass
+class ParsingException(Exception): pass
 class UnknownTable(Exception): pass
 
 class Match(object):
@@ -33,6 +33,30 @@ class MatchTCP(Match):
 			retVal = "{} --dport {}".format(retVal, self.dport)
 
 		return retVal
+
+	def __gt__(self, match):
+		"""
+		Compute if
+
+			self > match
+
+		meaning if self is a more general version than match. If it
+		is, return True, otherwise, return False.
+		"""
+
+		if self.sport is not None and match.sport is None:
+			return False
+
+		if self.dport is not None and match.dport is None:
+			return False
+
+		return self.sport == match.sport and self.dport == match.dport
+
+	def __lt__(self, match):
+		raise
+
+	def __eq__(self, match):
+		raise
 
 	def __init__(self, elements):
 
@@ -71,6 +95,30 @@ class MatchUDP(Match):
 
 		return retVal
 
+	def __gt__(self, match):
+		"""
+		Compute if
+
+			self > match
+
+		meaning if self is a more general version than match. If it
+		is, return True, otherwise, return False.
+		"""
+
+		if self.sport is not None and match.sport is None:
+			return False
+
+		if self.dport is not None and match.dport is None:
+			return False
+
+		return self.sport == match.sport and self.dport == match.dport
+
+	def __lt__(self, match):
+		raise
+
+	def __eq__(self, match):
+		raise
+
 	def __init__(self, elements):
 
 		super(MatchUDP, self).__init__(elements)
@@ -101,12 +149,45 @@ class MatchMultiport(Match):
 		retVal = "-m multiport"
 
 		if self.sports is not None:
-			retVal = "{} --sports {}".format(retVal, self.sports)
+			retVal = "{} --sports {}".format(retVal, ','.join(self.sports))
 
 		if self.dports is not None:
-			retVal = "{} --dports {}".format(retVal, self.dports)
+			retVal = "{} --dports {}".format(retVal, ','.join(self.dports))
 
 		return retVal
+
+	def __gt__(self, match):
+		"""
+		Compute if
+
+			self > match
+
+		i.e. if we are more general version of match
+		"""
+
+		if self.sports is not None and match.sports is None:
+			return False
+
+		if (self.sports is None and match.sports is not None) or (self.sports is None and match.sports is None):
+			return True
+
+		if self.dports is not None and match.dports is None:
+			return False
+
+		if (self.dports is None and match.dports is not None) or (self.dports is None and match.dports is None):
+			return True
+
+		if len(set(match.sports) - set(self.sports)) > 0: return False
+
+		if len(set(match.dports) - set(self.dports)) > 0: return False
+
+		return True
+
+	def __lt__(self, match):
+		raise
+
+	def __eq__(self, match):
+		raise
 
 	def __init__(self, elements):
 
@@ -137,6 +218,23 @@ class MatchState(Match):
 	def __str__(self):
 		return "-m state --state {}".format(','.join(self.states))
 
+	def __gt__(self, match):
+		"""
+		Compute if
+
+			self > match
+
+		i.e. if we are more general version of match
+		"""
+
+		return len(set(match.states) - set(self.states)) == 0
+
+	def __lt__(self, match):
+		raise
+
+	def __eq__(self, match):
+		raise
+
 	def __init__(self, elements):
 
 		super(MatchState, self).__init__(elements)
@@ -156,6 +254,12 @@ class MatchICMP(Match):
 
 	def __str__(self):
 		return "-m icmp --icmp-type {}".format(self.icmp_type)
+
+	def __lt__(self, match):
+		raise
+
+	def __eq__(self, match):
+		raise
 
 	def __init__(self, elements):
 
@@ -179,6 +283,12 @@ class MatchLimit(Match):
 
 	def __str__(self):
 		return "-m limit --limit {} --limit-burst {}".format(self.limit, self.limit_burst)
+
+	def __lt__(self, match):
+		raise
+
+	def __eq__(self, match):
+		raise
 
 	def __init__(self, elements):
 
@@ -204,6 +314,12 @@ class MatchESP(Match):
 
 	def __str__(self):
 		return "-m esp"
+
+	def __lt__(self, match):
+		raise
+
+	def __eq__(self, match):
+		raise
 
 	def __init__(self, elements):
 
@@ -246,9 +362,9 @@ class Selector(object):
 
 		if self.proto is not None:
 			if self.proto[1]:
-				retVal = "{} -o {}".format(retVal, self.proto[0])
+				retVal = "{} -p {}".format(retVal, self.proto[0])
 			else:
-				retVal = "{} ! -o {}".format(retVal, self.proto[0])
+				retVal = "{} ! -p {}".format(retVal, self.proto[0])
 
 		for key in self.matches:
 			retVal += " " + str(self.matches[key])
@@ -323,6 +439,123 @@ class Selector(object):
 			selector += match.getMatch()
 
 		return tuple(selector)
+
+	def __eq__(self, selector):
+		"""
+		Check if the given selector is identical
+		"""
+
+		if self.src != selector.src:
+			return False
+
+		if self.dst != selector.dst:
+			return False
+
+		if self.inif != selector.inif:
+			return False
+
+		if self.outif != selector.outif:
+			return False
+
+		if self.proto != selector.proto:
+			return False
+
+		for matchKey in self.matches:
+			if not selector.matches.has_key(matchKey):
+				return False
+
+			if self.matches[matchKey] != selector.matches[matchKey]:
+				return False
+
+		for matchKey in selector.matches:
+			if not self.matches.has_key(matchKey):
+				return False
+
+		return True
+
+	def __lt__(self, selector):
+		raise
+
+	def __gt__(self, selector):
+		"""
+		Calculate the following expression:
+
+			self > selector
+
+		i.e. if we are more general than the given selector
+		"""
+
+		if self.src is not None and selector.src is None:
+			return False
+
+		if self.src is not None and selector.src is not None:
+
+			if self.src[1] != selector.src[1]:
+				return False
+
+			if not self.src[0].overlaps(selector.src[0]):
+				return False
+
+			if self.src[1] and self.src[0].prefixlen > selector.src[0].prefixlen:
+				return False
+
+			if not self.src[1] and self.src[0].prefixlen < selector.src[0].prefixlen:
+				return False
+
+		if self.dst is not None and selector.dst is None:
+			return False
+
+		if self.dst is not None and selector.dst is not None:
+
+			if self.dst[1] != selector.dst[1]:
+				return False
+
+			if not self.dst[0].overlaps(selector.dst[0]):
+				return False
+
+			if selector.dst[1] and self.dst[0].prefixlen > selector.dst[0].prefixlen:
+				return False
+
+			if not self.dst[1] and self.dst[0].prefixlen < selector.dst[0].prefixlen:
+				return False
+
+		if (self.inif is not None and selector.inif is None) or self.inif != selector.inif:
+			return False
+
+		if (self.outif is not None and selector.outif is None) or self.outif != selector.outif:
+			return False
+
+		if self.proto is not None and selector.proto is None:
+			return False
+
+		if self.proto is not None and selector.proto is not None:
+
+			# Check if protocols are different
+			if self.proto[0] != selector.proto[0]:
+				return False
+
+			# Then, check if they are negated.
+			if self.proto[1] != selector.proto[1]:
+				return False
+
+			# Check source port
+			if (self.proto[2] is not None and selector.proto[2] is None) or (self.proto[2] is not None and selector.proto[2] is None and self.proto[2] != selector.proto[2]):
+				return False
+
+			# Check destination port
+			if (self.proto[3] is not None and selector.proto[3] is None) or (self.proto[3] is not None and selector.proto[3] is None and self.proto[3] != selector.proto[3]):
+				return False
+
+		for matchKey in self.matches:
+			if not selector.matches.has_key(matchKey):
+				return False
+
+			if self.matches[matchKey] > selector.matches[matchKey]:
+				continue
+
+			return False
+
+		return True
 
 	def intersect(self, selector):
 		newSelector = Selector()
@@ -419,6 +652,42 @@ class Target(object):
 	def __init__(self):
 		self.name = 'UNKNOWN'
 
+	def __eq__(self, target):
+
+		if self.name != target.name:
+			return False
+
+		if self.name in ('ACCEPT', 'DROP'):
+			return True
+
+		elif self.name == 'SNAT':
+			return self.to_source == target.to_source
+
+		elif self.name == 'DNAT':
+			return self.to_destination == target.to_destination
+
+		elif self.name == 'REJECT':
+			return self.log_prefix == target.log_prefix
+
+		elif self.name == 'LOG':
+
+			if self.log_prefix != target.log_prefix:
+				return False
+
+			if self.log_prefix != target.log_prefix:
+				return False
+
+			if self.log_level != target.log_level:
+				return False
+
+			if self.log_tcp_options != target.log_tcp_options:
+				return False
+
+			return self.log_ip_options == target.log_ip_options
+
+		else:
+			raise Excpetion("Unknown target {}".format(self.name))
+
 	def initializeFromIPTablesCommand(self, iptablesCommand):
 
 		target = iptablesCommand['-j'][0]
@@ -456,18 +725,26 @@ class Target(object):
 			if target.has_key('--log-prefix'):
 				self.log_prefix = target['--log-prefix']
 				del target['--log-prefix']
+			else:
+				self.log_prefix = None
 
 			if target.has_key('--log-level'):
 				self.log_level = target['--log-level']
 				del target['--log-level']
+			else:
+				self.log_level = None
 
 			if target.has_key('--log-tcp-options'):
-				self.log_level = target['--log-tcp-options']
+				self.log_tcp_options = target['--log-tcp-options']
 				del target['--log-tcp-options']
+			else:
+				self.log_tcp_options = None
 
 			if target.has_key('--log-ip-options'):
-				self.log_level = target['--log-ip-options']
+				self.log_ip_options = target['--log-ip-options']
 				del target['--log-ip-options']
+			else:
+				self.log_ip_options = None
 
 			self.final = True
 
@@ -477,12 +754,22 @@ class Target(object):
 class Rule(object):
 
 	def __str__(self):
-		return str(self.selector) + " " + str(self.target)
+		retVal = ""
+		if self.table is not None:
+			retVal = "-t {}".format(self.table)
 
-	def __init__(self):
+		if self.chain is not None:
+			retVal = "{} -A {}".format(retVal, self.chain)
+
+		return "{} {} {}".format(retVal, str(self.selector), str(self.target))
+
+	def __init__(self, table = None, chain = None):
 		self.selector = Selector()
 		self.target = Target()
 		self.lineNumber = None
+
+		self.table = table
+		self.chain = chain
 
 	def __getattr__(self, name):
 		if name == 'final':
@@ -490,35 +777,72 @@ class Rule(object):
 
 		raise AttributeError("'Rule' object has no attribute '{}'".format(name))
 
+	def __eq__(self, rule):
+		if self.selector == rule.selector and self.target == rule.target:
+			return True
+
+		return False
+
+	def __gt__(self, rule):
+		if self.selector > rule.selector and self.target == rule.target:
+			return True
+
+		return False
+
 	def initializeFromIPTablesCommand(self, iptablesCommand):
 		self.selector.initializeFromIPTablesCommand(iptablesCommand)
 		self.target.initializeFromIPTablesCommand(iptablesCommand)
 
-	def setLineNumber(self, lineNumber):
-		self.lineNumber = lineNumber
-
 class Chain(object):
 
-	def __init__(self, name, builtin = True):
+	def __init__(self, name, builtin = True, table = None):
 		self.name = name
 		self.rules = []
 		self.policy = 'ACCEPT'
 		self.builtin = builtin
 
+		self.table = table
+
+		# Indexes that group rules by different attributes
+		self.rulesBySourceAddress = {}
+		self.rulesByDestinationAddress = {}
+
 	def setPolicy(self, policy):
 		self.policy = policy
 
-	def insertRule(self, iptablesCommand, lineNumber):
-		rule = Rule()
-		rule.setLineNumber(lineNumber)
+	def insertRule(self, iptablesCommand, lineNumber, fileName):
+		rule = Rule(self.table, self.name)
+		rule.lineNumber = lineNumber
+		rule.fileName = fileName
 		rule.initializeFromIPTablesCommand(iptablesCommand)
 		self.rules.insert(iptablesCommand['-I'][1], rule)
 
-	def appendRule(self, iptablesCommand, lineNumber):
-		rule = Rule()
-		rule.setLineNumber(lineNumber)
+		if not self.rulesBySourceAddress.has_key(rule.selector.src):
+			self.rulesBySourceAddress[rule.selector.src] = []
+		self.rulesBySourceAddress[rule.selector.src].append(rule)
+
+		if not self.rulesByDestinationAddress.has_key(rule.selector.src):
+			self.rulesByDestinationAddress[rule.selector.src] = []
+		self.rulesByDestinationAddress[rule.selector.src].append(rule)
+
+		return rule
+
+	def appendRule(self, iptablesCommand, lineNumber, fileName):
+		rule = Rule(self.table, self.name)
+		rule.lineNumber = lineNumber
+		rule.fileName = fileName
 		rule.initializeFromIPTablesCommand(iptablesCommand)
 		self.rules.append(rule)
+
+		if not self.rulesBySourceAddress.has_key(rule.selector.src):
+			self.rulesBySourceAddress[rule.selector.src] = []
+		self.rulesBySourceAddress[rule.selector.src].append(rule)
+
+		if not self.rulesByDestinationAddress.has_key(rule.selector.src):
+			self.rulesByDestinationAddress[rule.selector.src] = []
+		self.rulesByDestinationAddress[rule.selector.src].append(rule)
+
+		return rule
 
 	def deleteRule(self, iptablesCommand):
 		raise Exception('Rule removal not implemented!')
@@ -530,10 +854,15 @@ class Table(object):
 		self.chains = {}
 		self.builtInChains = []
 		for chain in chains:
-			self.chains[chain] = Chain(chain)
+			self.chains[chain] = Chain(chain, table = self.name)
 			self.builtInChains.append(chain)
 
-	def parseIPTablesCommand(self, iptablesCommand, lineNumber = None):
+		# Indexes that group rules by different attributes
+		self.rulesBySourceAddress = {}
+
+	def parseIPTablesCommand(self, iptablesCommand, lineNumber = None, fileName = None):
+
+		rule = None
 
 		if iptablesCommand.has_key('-P'):
 
@@ -542,29 +871,44 @@ class Table(object):
 
 		elif iptablesCommand.has_key('-N'):
 
-			self.chains[iptablesCommand['-N'][0]] = Chain(iptablesCommand['-N'][0], False)
+			self.chains[iptablesCommand['-N'][0]] = Chain(iptablesCommand['-N'][0], False, table = self.name)
 			del iptablesCommand['-N']
 
 		elif iptablesCommand.has_key('-I'):
 
-			self.chains[iptablesCommand['-I'][0]].insertRule(iptablesCommand, lineNumber)
+			rule = self.chains[iptablesCommand['-I'][0]].insertRule(iptablesCommand, lineNumber, fileName)
 			del iptablesCommand['-I']
+
+			if not self.rulesBySourceAddress.has_key(rule.selector.src):
+				self.rulesBySourceAddress[rule.selector.src] = []
+			self.rulesBySourceAddress[rule.selector.src].append(rule)
 
 		elif iptablesCommand.has_key('-A'):
 
-			self.chains[iptablesCommand['-A'][0]].appendRule(iptablesCommand, lineNumber)
+			rule = self.chains[iptablesCommand['-A'][0]].appendRule(iptablesCommand, lineNumber, fileName)
 			del iptablesCommand['-A']
+
+			if not self.rulesBySourceAddress.has_key(rule.selector.src):
+				self.rulesBySourceAddress[rule.selector.src] = []
+			self.rulesBySourceAddress[rule.selector.src].append(rule)
 
 		elif iptablesCommand.has_key('-F'):
 
 			print "Warning: Ignorig -F command"
 			del iptablesCommand['-F']
 
+		elif iptablesCommand.has_key('-D'):
+
+			print "Warning: Ignorig -D command"
+			del iptablesCommand['-D']
+
 		else:
-			raise Exception("Unrecognized command {}".format(iptablesCommand))
+			raise ParsingException("Unrecognized command {}".format(iptablesCommand))
 
 		if len(iptablesCommand) > 0:
-			raise UnparsableLine("Unparsed argument(s): {}".format(''.join(iptablesCommand)))
+			raise ParsingException("Unparsed argument(s): {}".format(''.join(iptablesCommand)))
+
+		return rule
 
 	def getFlattenedRules(self, chain):
 
@@ -581,7 +925,7 @@ class Table(object):
 					clonedRule.selector = rule.selector.intersect(subrule.selector)
 					clonedRule.target = subrule.target
 				except Exception as detail:
-					print "Pogreska u pravilu u liniji {} i liniji {}".format(rule.lineNumber, subrule.lineNumber)
+					print "Error in rules in lines {}:{} and {}:{}".format(rule.fileName, rule.lineNumber, subrule.fileName, subrule.lineNumber)
 					continue
 
 				yield clonedRule
@@ -596,6 +940,10 @@ class Firewall(object):
 			'mangle': Table('MANGLE', ['PREROUTING', 'INPUT', 'FORWARD', 'OUTPUT', 'POSTROUTING']),
 			'raw': Table('RAW', ['PREROUTING', 'OUTPUT'])
 		}
+
+		# Indexes that group rules by different attributes
+		self.rulesBySourceAddress = {}
+		self.rulesByDestinationAddress = {}
 
 	def parseMatch(self, matchType, elements):
 
@@ -640,7 +988,7 @@ class Firewall(object):
 				elements.pop(0)
 				match['--state'] = elements.pop(0)
 			else:
-				raise UnparsableLine("Expected state type match")
+				raise ParsingException("Expected state type match")
 
 		elif matchType == 'esp':
 			pass
@@ -664,7 +1012,7 @@ class Firewall(object):
 				break
 
 		else:
-			raise UnparsableLine("Unknown match type {}".format(matchType))
+			raise ParsingException("Unknown match type {}".format(matchType))
 
 		return (match, )
 
@@ -682,7 +1030,7 @@ class Firewall(object):
 				elements.pop(0)
 				target['--to-destination'] = elements.pop(0)
 			else:
-				raise UnparsableLine("Expected --to-destination argument")
+				raise ParsingException("Expected --to-destination argument")
 
 		elif targetType == 'SNAT':
 
@@ -690,7 +1038,7 @@ class Firewall(object):
 				elements.pop(0)
 				target['--to-source'] = elements.pop(0)
 			else:
-				raise UnparsableLine("Expected --to-source argument")
+				raise ParsingException("Expected --to-source argument")
 
 		elif targetType == 'REJECT':
 
@@ -700,7 +1048,7 @@ class Firewall(object):
 					elements.pop(0)
 					target['--reject-with'] = elements.pop(0)
 				else:
-					raise UnparsableLine("Leftover unparsed arguments {}".format(elements))
+					raise ParsingException("Leftover unparsed arguments {}".format(elements))
 
 		elif targetType == 'LOG':
 
@@ -719,20 +1067,21 @@ class Firewall(object):
 					elements.pop(0)
 					target['--log-ip-options'] = True
 				else:
-					raise UnparsableLine("Leftover unparsed arguments {}".format(elements))
+					raise ParsingException("Leftover unparsed arguments {}".format(elements))
 
 		else:
 			pass
 
 		return (target, )
 
-	def addIPTablesLine(self, line, lineNumber = 0):
+	def addIPTablesLine(self, line, lineNumber = 0, fileName = None):
 
 		# First, split the line into components taking care of strings
 		elements = shlex.split(line)
 
- 		# Drop command line element
-		elements.pop(0)
+ 		# Drop command line element if it is iptables command
+		if len(elements[0]) > 8 and element[0][-8:] == 'iptables':
+			elements.pop(0)
 
 		# Traverse components and build up dictionary.
 		# Dictionary has as a key commands and options, and the values of
@@ -809,101 +1158,88 @@ class Firewall(object):
 		else:
 			table = 'filter'
 
-		self.tables[table].parseIPTablesCommand(iptablesCommand, lineNumber)
+		rule = self.tables[table].parseIPTablesCommand(iptablesCommand, lineNumber, fileName)
 
-	def _buildAllInterfaces(self):
+		if rule is not None:
 
-		self.allRulesByInputInterface = {}
-		self.allRulesByOutputInterface = {}
+			if not self.rulesBySourceAddress.has_key(rule.selector.src):
+				self.rulesBySourceAddress[rule.selector.src] = []
+			self.rulesBySourceAddress[rule.selector.src].append(rule)
 
-		for table in ('filter', 'mangle', 'nat', 'raw'):
-			for chain in self.tables[table].chains:
-				for rule in self.tables[table].chains[chain].rules:
-					if not self.allRulesByInputInterface.has_key(rule.selector.inif[0]):
-						self.allRulesByInputInterface[rule.selector.inif[0]] = []
-					self.allRulesByInputInterface[rule.selector.inif[0]].append(rule)
-					if not self.allRulesByOutputInterface.has_key(rule.selector.outif[0]):
-						self.allRulesByOutputInterface[rule.selector.outif[0]] = []
-					self.allRulesByOutputInterface[rule.selector.outif[0]].append(rule)
+			if not self.rulesByDestinationAddress.has_key(rule.selector.src):
+				self.rulesByDestinationAddress[rule.selector.src] = []
+			self.rulesByDestinationAddress[rule.selector.src].append(rule)
 
-	def getAllInputInterfaces(self):
+def checkContradictingRules(firewall):
+	"""
+	This method flattens all the rules in the firewall to builtin chains
+	and then searches for contradictions in rules that call subchains and
+	rules in subchains.
+	"""
 
-		self._buildAllInterfaces()
-		return self.allRulesByInputInterface
+	for table in firewall.tables:
+		for chain in firewall.tables[table].builtInChains:
+			for flattenedRule in firewall.tables[table].getFlattenedRules(chain):
+				pass
 
-	def getAllOutputInterfaces(self):
+def checkDuplicateRules(firewall):
+	"""
+	This method iterates over rules in each table/chain combination and
+	searches for duplicate rules
+	"""
+	for table in firewall.tables:
+		for chain in firewall.tables[table].chains:
+			numRules = len(firewall.tables[table].chains[chain].rules)
+			for idx in xrange(numRules):
+				baseRule = firewall.tables[table].chains[chain].rules[idx]
+				for idx2 in xrange(idx + 1, numRules):
+					compRule = firewall.tables[table].chains[chain].rules[idx2]
+					if compRule == baseRule:
+						print "Duplicate rules in lines {}:{} and {}:{}".format(baseRule.fileName, baseRule.lineNumber, compRule.fileName, compRule.lineNumber)
 
-		self._buildAllInterfaces()
-		return self.allRulesByOutputInterface
+def checkSupersetRules(firewall):
+	"""
+	This method searches for more general rule followed by a more
+	specific one
+	"""
+	for table in firewall.tables:
+		for chain in firewall.tables[table].chains:
+			numRules = len(firewall.tables[table].chains[chain].rules)
+			for idx in xrange(numRules):
+				baseRule = firewall.tables[table].chains[chain].rules[idx]
+				for idx2 in xrange(idx + 1, numRules):
+					compRule = firewall.tables[table].chains[chain].rules[idx2]
+					if baseRule > compRule:
+						print "Superset rule in line {}:{} over rule in line {}:{}".format(baseRule.fileName, baseRule.lineNumber, compRule.fileName, compRule.lineNumber)
 
-	def getAllSelectors(self):
+def dumpAllChains(firewall):
+	"""
+	Dump names of all chains in the firewall
+	"""
+	for table in firewall.tables:
+		print table
+		for chain in firewall.tables[table].chains:
+			print "\t", chain
 
-		selectorCount = {}
+def dumpAllRulesPerChainAndTable(firewall):
+	"""
+	This method dumps all rules grouped by chains and rules
+	"""
+	for table in firewall.tables:
+		print table
+		for chain in firewall.tables[table].chains:
+			print "\t{}".format(chain)
+			for rule in firewall.tables[table].chains[chain].rules:
+				print "\t\t{:5}: {}".format(rule.lineNumber, rule)
 
-		for table in ('filter', 'mangle', 'nat', 'raw'):
-			for chain in self.tables[table].chains:
-				for rule in self.tables[table].chains[chain].rules:
-					t = rule.selector.getSelectorTuple()
-					if not selectorCount.has_key(t):
-						selectorCount[t] = 0
-					selectorCount[t] += 1
+def dumpAllFlattenedRules(firewall):
+	"""
+	Flattens and dumps all rules so that all of them appear as if in
+	built in chains. This can catch contradictions, i.e. rule in a
+	subchain has a contradictory match against rule in a chain that calls
+	subchain.
+	"""
 
-		return selectorCount
-
-	def getAllSrcAddresses(self):
-
-		sources = set()
-		selectorCount = {}
-
-		for table in ('filter', 'mangle', 'nat', 'raw'):
-			for chain in self.tables[table].chains:
-				for rule in self.tables[table].chains[chain].rules:
-					t = tuple(rule.selector.src)
-					sources.add(t)
-					if not selectorCount.has_key(t):
-						selectorCount[t] = 0
-					selectorCount[t] += 1
-
-		return sources
-
-	def getAllDstAddresses(self):
-
-		destinations = set()
-
-		for table in ('filter', 'mangle', 'nat', 'raw'):
-			for chain in self.tables[table].chains:
-				for rule in self.tables[table].chains[chain].rules:
-					destinations.add(tuple(rule.selector.dst))
-
-		return destinations
-
-def main(fwFileName):
-
-	firewall = Firewall()
-
-	with open(fwFileName) as f:
-
-		lineNumber = 0
-		for line in f.readlines():
-			lineNumber += 1
-			if line[0] == '#' or line[0] == '\n': continue
-
-			#print "Line {}: parsing rule '{}'".format(lineNumber, line[:-1])
-			try:
-				firewall.addIPTablesLine(line, lineNumber)
-			except Exception as detail:
-				print "Error '{}' in line {}".format(detail, lineNumber)
-				sys.exit(1)
-
-
-	## Dump all chains in every table
-	#for table in firewall.tables:
-	#	print table
-	#	for chain in firewall.tables[table].chains:
-	#		print "\t", chain
-
-	## Dump all rules from the FORWARD chain filter table
-	## include one level of subchains
 	for table in firewall.tables:
 		print "{}".format(table)
 		for chain in firewall.tables[table].builtInChains:
@@ -912,12 +1248,66 @@ def main(fwFileName):
 				print "\t\t", flattenedRule
 			print
 
+def dumpAllRulesBySourceAddress(firewall):
+	"""
+	Dump all rules grouped by a source address
+	"""
+	for source in firewall.rulesBySourceAddress:
+		print source
+		for rule in firewall.rulesBySourceAddress[source]:
+			print "\t{}".format(rule)
+
+def dumpAllRulesByDestinationAddress(firewall):
+	"""
+	Dump all rules grouped by a source address
+	"""
+	for source in firewall.rulesByDestinationAddress:
+		print source
+		for rule in firewall.rulesByDestinationAddress[source]:
+			print "\t{}".format(rule)
+
+def main(fwFileNames):
+
+	firewall = Firewall()
+
+	for fwFileName in fwFileNames:
+		with open(fwFileName) as f:
+
+			lineNumber = 0
+			for line in f.readlines():
+				lineNumber += 1
+				if line[0] == '#' or line[0] == '\n': continue
+
+				try:
+					firewall.addIPTablesLine(line, lineNumber, fwFileName)
+				except ParsingException as detail:
+					print "Parsing error '{}' in line {}:{}".format(detail, fwFileName, lineNumber)
+					sys.exit(1)
+
+	dumpAllRulesPerChainAndTable(firewall)
+
+	#dumpAllRulesBySourceAddress(firewall)
+	print
+	print "Checking contradicting rules"
+	print "============================"
+	checkContradictingRules(firewall)
+	#dumpAllRulesPerChainAndTable(firewall)
+	print
+	print "Checking duplicate rules"
+	print "========================"
+	checkDuplicateRules(firewall)
+	print
+	print "Checking overlapping rules"
+	print "========================"
+	checkSupersetRules(firewall)
+	print
+
 	#print firewall.getAllInputInterfaces().keys()
 	#print firewall.getAllOutputInterfaces().keys()
 
 if __name__ == '__main__':
-	if len(sys.argv) != 2:
-		print "Usage: {} <file>".format(sys.argv[0])
+	if len(sys.argv) < 2:
+		print "Usage: {} <file1> [<file2> [<file3> [ ... ]]]".format(sys.argv[0])
 		sys.exit(1)
 
-	main(sys.argv[1])
+	main(sys.argv[1:])
