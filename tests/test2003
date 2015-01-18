@@ -1,0 +1,2 @@
+/usr/sbin/iptables -A FORWARD -i eth0 -s 10.0.0.44 -j ACCEPT
+/usr/sbin/iptables -A FORWARD -i eth0 -s 10.0.0.0/24 -d 10.0.0.5 -p tcp -m tcp -m multiport --dports 80,443 -j ACCEPT

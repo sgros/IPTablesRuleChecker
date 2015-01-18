@@ -1,0 +1,3 @@
+/usr/sbin/iptables -A FORWARD -s 10.0.0.0/24 -i eth0 -p tcp -m tcp --dport 465 -j ACCEPT
+/usr/sbin/iptables -A FORWARD -s 10.0.0.0/24 -i eth0 -p tcp -m tcp --dport 465 -j ACCEPT
+
