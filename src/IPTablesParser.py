@@ -405,6 +405,63 @@ class MatchESP(Match):
 	def getMatch(self):
 		return [self.name]
 
+class MatchString(Match):
+
+	idx = "STRING"
+
+	def __str__(self):
+		return "-m string --string {} --algo {} --to {}".format(self.string, self.algo, self.to)
+
+	def __lt__(self, match):
+		"""
+		Compute if
+
+			self < match
+
+		i.e. if we are more general version of match
+
+		Since this match is either equal or not, i.e. there is no _lt_ and _gt_
+		it always returns False. Note that I assume self has a string match,
+		otherwise, 
+		"""
+		return False
+
+	def __gt_(self, match):
+		raise
+
+	def __eq__(self, match):
+		return self.string == match.string and self.algo == match.algo and self.to == match.to
+
+	def __init__(self, elements):
+
+		super(MatchString, self).__init__(elements)
+
+		self.breadth = 100
+
+		if elements.has_key('--string'):
+			self.string = elements['--string']
+			del elements['--string']
+		else:
+			self.string = None
+
+		if elements.has_key('--algo'):
+			self.algo = elements['--algo']
+			del elements['--algo']
+		else:
+			self.algo = None
+
+		if elements.has_key('--to'):
+			self.to = elements['--to']
+			del elements['--to']
+		else:
+			self.to = None
+
+		if len(elements) > 0:
+			raise Exception("Unparsed state options {}".format(elements))
+
+	def getMatch(self):
+		return [self.name]
+
 class Selector(object):
 
 	def __str__(self):
@@ -463,6 +520,8 @@ class Selector(object):
 			return MatchLimit(elements)
 		elif elements['name'] == 'mac':
 			return MatchMAC(elements)
+		elif elements['name'] == 'string':
+			return MatchString(elements)
 		else:
 			raise Exception("Unparsed match {}".format(elements['name']))
 
@@ -745,7 +804,7 @@ class Target(object):
 		if self.name != target.name:
 			return False
 
-		if self.name in ('ACCEPT', 'DROP'):
+		if self.name in ('ACCEPT', 'DROP', 'MASQUERADE', 'RETURN'):
 			return True
 
 		elif self.name == 'SNAT':
@@ -785,7 +844,7 @@ class Target(object):
 		del target['name']
 		self.final = False
 
-		if self.name in ('ACCEPT', 'DROP'):
+		if self.name in ('ACCEPT', 'DROP', 'MASQUERADE', 'RETURN'):
 			self.final = True
 
 		elif self.name == 'SNAT':
@@ -1140,6 +1199,30 @@ class Firewall(object):
 
 				break
 
+		elif matchType == 'string':
+
+			while len(elements) > 0:
+
+				if elements[0] == '--string':
+					match['--string'] = elements[1]
+					elements.pop(0)
+					elements.pop(0)
+					continue
+
+				if elements[0] == '--algo':
+					match['--algo'] = elements[1]
+					elements.pop(0)
+					elements.pop(0)
+					continue
+
+				if elements[0] == '--to':
+					match['--to'] = elements[1]
+					elements.pop(0)
+					elements.pop(0)
+					continue
+
+				break
+
 		else:
 			raise ParsingException("Unknown match type {}".format(matchType))
 
@@ -1150,7 +1233,7 @@ class Firewall(object):
 		target = {}
 		target['name'] = targetType
 
-		if targetType in ('ACCEPT', 'DROP'):
+		if targetType in ('ACCEPT', 'DROP', 'MASQUERADE', 'RETURN'):
 			pass
 
 		elif targetType == 'DNAT':
@@ -1203,7 +1286,7 @@ class Firewall(object):
 
 		return (target, )
 
-	def addIPTablesLine(self, line, lineNumber = 0, fileName = None):
+	def addIPTablesCLILine(self, line, lineNumber = 0, fileName = None):
 
 		# First, split the line into components taking care of strings
 		elements = shlex.split(line)
@@ -1290,6 +1373,62 @@ class Firewall(object):
 				self.rulesByDestinationAddress[rule.selector.dst] = []
 			self.rulesByDestinationAddress[rule.selector.dst].append(rule)
 
+	def addIPTablesLoadSavedStream(self, fileName, stream):
+		"""
+		This method expects iterator object, stream, that has method readlines().
+		Method readlines() should return line by line of input stream, where
+		each line output produced by iptables-save command.
+
+		FIXME: This is hacked method. Loading rules has to be
+			refactored/optimized
+		"""
+
+		lineNumber = 0
+		for line in stream.readlines():
+			lineNumber += 1
+			if line[0] == '#' or line[0] == '\n': continue
+
+			if line[0] == '*':
+				table = line[1:]
+				continue
+
+			if line[0] == ':':
+				args = line[1:].split()
+				if args[1] == '-':
+					self.addIPTablesCLILine("iptables -t {} -N {}".format(table, args[0]), lineNumber, fileName)
+				else:
+					self.addIPTablesCLILine("iptables -t {} -P {} {}".format(table, args[0], args[1]), lineNumber, fileName)
+				continue
+
+			if line[:6] == 'COMMIT':
+				continue
+
+			try:
+				self.addIPTablesCLILine("iptables -t {} {}".format(table, line), lineNumber, fileName)
+			except ParsingException as detail:
+				print "Parsing error '{}' in line {}:{}".format(detail, fileName, lineNumber)
+				# TODO: Add ignore errors parameter
+				return
+
+	def addIPTablesLoadCLIStream(self, fileName, stream):
+		"""
+		This method expects iterator object, stream, that has method readlines().
+		Method readlines() should return line by line of input stream, where
+		each line is a full iptables command as typed in command line.
+		"""
+
+		lineNumber = 0
+		for line in stream.readlines():
+			lineNumber += 1
+			if line[0] == '#' or line[0] == '\n': continue
+
+			try:
+				self.addIPTablesCLILine(line, lineNumber, fileName)
+			except ParsingException as detail:
+				print "Parsing error '{}' in line {}:{}".format(detail, fileName, lineNumber)
+				# TODO: Add ignore errors parameter
+				return
+
 def checkContradictingRules(firewall):
 	"""
 	This method flattens all the rules in the firewall to builtin chains
@@ -1315,7 +1454,7 @@ def checkDuplicateRules(firewall):
 				for idx2 in xrange(idx + 1, numRules):
 					compRule = firewall.tables[table].chains[chain].rules[idx2]
 					if compRule == baseRule:
-						print "Duplicate rules in lines {}:{} and {}:{}".format(baseRule.fileName, baseRule.lineNumber, compRule.fileName, compRule.lineNumber)
+						print "Duplicate rules in {} and {}".format(baseRule.lineAndFile, compRule.lineAndFile)
 
 def checkSupersetRules(firewall):
 	"""
@@ -1417,17 +1556,8 @@ def main(fwFileNames):
 
 	for fwFileName in fwFileNames:
 		with open(fwFileName) as f:
-
-			lineNumber = 0
-			for line in f.readlines():
-				lineNumber += 1
-				if line[0] == '#' or line[0] == '\n': continue
-
-				try:
-					firewall.addIPTablesLine(line, lineNumber, fwFileName)
-				except ParsingException as detail:
-					print "Parsing error '{}' in line {}:{}".format(detail, fwFileName, lineNumber)
-					sys.exit(1)
+#			firewall.addIPTablesLoadCLIStream(fwFileName, f)
+			firewall.addIPTablesLoadSavedStream(fwFileName, f)
 
 	#dumpAllRulesPerChainAndTable(firewall)
 	#dumpAllRulesBySourceAddress(firewall)
@@ -1437,7 +1567,7 @@ def main(fwFileNames):
 	#dumpAllFlattenedRules(firewall, CSV = True)
 
 	print
-	print "Checking contradicting rules"
+	print "Check network masks"
 	print "============================"
 	checkNetworkMasks(firewall)
 	print
