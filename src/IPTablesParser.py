@@ -1482,7 +1482,7 @@ def dumpAllChains(firewall):
 
 def checkNetworkMasks(firewall):
 	"""
-	This method checks networks and IP addresses for mistakes liek the
+	This method checks networks and IP addresses for mistakes like the
 	following ones:
 
 		192.168.1.1/0
