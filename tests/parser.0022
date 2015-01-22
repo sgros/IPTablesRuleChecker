@@ -1,1 +1,4 @@
+# This is a simple test for a parser. No error expected here!
+#
+
 /usr/sbin/iptables -I FORWARD -s 192.168.1.1 -i eth0 -p tcp -m tcp --dport 500 -m state --state NEW -j ACCEPT

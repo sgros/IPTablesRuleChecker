@@ -1,1 +1,0 @@
-iptables -A INPUT -p tcp --dport 3333 -j REJECT

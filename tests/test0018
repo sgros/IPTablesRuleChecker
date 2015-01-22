@@ -1,1 +1,0 @@
-iptables -A INPUT -s facebook.com -p tcp --sport www -j DROP

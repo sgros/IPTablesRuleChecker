@@ -1,0 +1,11 @@
+# This is a test case that has contradiction in the protocol 
+# selector.
+#
+# The rule "-j vlan1" specifies TCP protocol and it is in the
+# contradiction with the second to last rule that specifies
+# UDP protocol.
+
+/sbin/iptables -N vlan1
+/sbin/iptables -I FORWARD -i vlan1 -p tcp -j vlan1
+/sbin/iptables -I vlan1 -s 1.1.1.1/32 -d 2.2.2.2 -p udp -j ACCEPT
+/sbin/iptables -I vlan1 -s 1.1.1.1/32 -d 2.2.2.3 -j DROP

@@ -1,0 +1,5 @@
+# In this case we have IP addresses that have incorrect network
+# prefix length
+
+iptables -I INPUT -s 192.168.1.1/0 -j ACCEPT
+iptables -I INPUT -s 192.168.1.1/16 -j ACCEPT

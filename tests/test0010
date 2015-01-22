@@ -1,2 +1,0 @@
-iptables -A INPUT -p tcp -s 77.66.55.44 --dport ssh -j ACCEPT
-iptables -A INPUT -p tcp --dport ssh -j REJECT

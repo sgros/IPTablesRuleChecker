@@ -1,0 +1,4 @@
+# This is a simple test for a parser. No error expected here!
+#
+
+iptables -A INPUT -p tcp --dport 3333 -j REJECT

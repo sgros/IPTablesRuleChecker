@@ -1,3 +1,6 @@
+# This is a simple test for a parser. No error expected here!
+#
+
 iptables -F
 iptables -A INPUT -j REJECT
 iptables -A OUTPUT -j REJECT

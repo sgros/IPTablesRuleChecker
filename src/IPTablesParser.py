@@ -22,6 +22,7 @@ import sys
 import re
 import ipaddr
 import shlex
+import traceback
 from collections import OrderedDict
 
 class ContradictingParameters(Exception): pass
@@ -80,15 +81,19 @@ class MatchTCP(Match):
 
 		super(MatchTCP, self).__init__(elements)
 
+		self.breadth = 100
+
 		if elements.has_key('--sport'):
 			self.sport = elements['--sport']
 			del elements['--sport']
+			self.breadth += 1000
 		else:
 			self.sport = None
 
 		if elements.has_key('--dport'):
 			self.dport = elements['--dport']
 			del elements['--dport']
+			self.breadth += 1000
 		else:
 			self.dport = None
 
@@ -141,15 +146,19 @@ class MatchUDP(Match):
 
 		super(MatchUDP, self).__init__(elements)
 
+		self.breadth = 100
+
 		if elements.has_key('--sport'):
 			self.sport = elements['--sport']
 			del elements['--sport']
+			self.breadth += 1000
 		else:
 			self.sport = None
 
 		if elements.has_key('--dport'):
 			self.dport = elements['--dport']
 			del elements['--dport']
+			self.breadth += 1000
 		else:
 			self.dport = None
 
@@ -211,15 +220,19 @@ class MatchMultiport(Match):
 
 		super(MatchMultiport, self).__init__(elements)
 
+		self.breadth = 0
+
 		if elements.has_key('--sports'):
 			self.sports = elements['--sports'].split(',')
 			del elements['--sports']
+			self.breadth += 1000 // len(self.sports)
 		else:
 			self.sports = None
 
 		if elements.has_key('--dports'):
 			self.dports = elements['--dports'].split(',')
 			del elements['--dports']
+			self.breadth += 1000 // len(self.dports)
 		else:
 			self.dports = None
 
@@ -257,8 +270,11 @@ class MatchState(Match):
 
 		super(MatchState, self).__init__(elements)
 
+		self.breadth = 0
+
 		self.states = elements['--state'].split(',')
 		del elements['--state']
+		self.breadth += 1000 // len(self.states)
 
 		if len(elements) > 0:
 			raise Exception("Unparsed state options {}".format(elements))
@@ -283,9 +299,12 @@ class MatchICMP(Match):
 
 		super(MatchICMP, self).__init__(elements)
 
+		self.breadth = 100
+
 		if elements.has_key('--icmp-type'):
 			self.icmp_type = elements['--icmp-type']
 			del elements['--icmp-type']
+			self.breadth += 100
 		else:
 			self.icmp_type = 'all'
 
@@ -315,6 +334,8 @@ class MatchLimit(Match):
 		self.limit = None
 		self.limit_burst = None
 
+		self.breadth = 1
+
 		if elements.has_key('--limit'):
 			self.limit = elements['--limit']
 			del elements['--limit']
@@ -322,6 +343,39 @@ class MatchLimit(Match):
 		if elements.has_key('--limit-burst'):
 			self.limit_burst = elements['--limit-burst']
 			del elements['--limit-burst']
+
+		if len(elements) > 0:
+			raise Exception("Unparsed state options {}".format(elements))
+
+class MatchMAC(Match):
+
+	idx = "MAC"
+
+	def __str__(self):
+		return "-m mac --mac-source {} --mac-destination {}".format(self.mac_src, self.mac_dst)
+
+	def __lt__(self, match):
+		raise
+
+	def __eq__(self, match):
+		raise
+
+	def __init__(self, elements):
+
+		super(MatchMAC, self).__init__(elements)
+
+		self.src = None
+		self.dst = None
+
+		self.breadth = 1
+
+		if elements.has_key('--mac-source'):
+			self.limit = elements['--mac-source']
+			del elements['--mac-source']
+
+		if elements.has_key('--mac-destination'):
+			self.limit_burst = elements['--mac-destination']
+			del elements['--mac-destination']
 
 		if len(elements) > 0:
 			raise Exception("Unparsed state options {}".format(elements))
@@ -342,6 +396,8 @@ class MatchESP(Match):
 	def __init__(self, elements):
 
 		super(MatchESP, self).__init__(elements)
+
+		self.breadth = 100
 
 		if len(elements) > 0:
 			raise Exception("Unparsed state options {}".format(elements))
@@ -405,6 +461,8 @@ class Selector(object):
 			return MatchESP(elements)
 		elif elements['name'] == 'limit':
 			return MatchLimit(elements)
+		elif elements['name'] == 'mac':
+			return MatchMAC(elements)
 		else:
 			raise Exception("Unparsed match {}".format(elements['name']))
 
@@ -420,34 +478,54 @@ class Selector(object):
 		self.matches = OrderedDict()
 
 	def initializeFromIPTablesCommand(self, iptablesCommand):
+		"""
+		Initialize rule from IPTables command line. Return estimate of the
+		breadth of the rule. The higher the returned value, the narrower rule
+		is.
+		"""
+
+		breadth = 0
 
 		if iptablesCommand.has_key('-s'):
 			self.src = (ipaddr.IPNetwork(iptablesCommand['-s'][0]), iptablesCommand['-s'][1])
 			del iptablesCommand['-s']
 
+			breadth += self.src[0].prefixlen * 10
+
 		if iptablesCommand.has_key('-d'):
 			self.dst = (ipaddr.IPNetwork(iptablesCommand['-d'][0]), iptablesCommand['-d'][1])
 			del iptablesCommand['-d']
+
+			breadth += self.dst[0].prefixlen * 10
 
 		if iptablesCommand.has_key('-i'):
 			self.inif = iptablesCommand['-i']
 			del iptablesCommand['-i']
 
+			breadth += 100
+
 		if iptablesCommand.has_key('-o'):
 			self.outif = iptablesCommand['-o']
 			del iptablesCommand['-o']
 
+			breadth += 100
+
 		if iptablesCommand.has_key('-p'):
 			self.proto = iptablesCommand['-p']
 			del iptablesCommand['-p']
+
+			breadth += 100
 
 		if iptablesCommand.has_key('-m'):
 
 			for match in iptablesCommand['-m']:
 				matchObject = self.matchFactory(match[0])
 				self.matches[matchObject.idx] = matchObject
+				breadth += matchObject.breadth
 
 			del iptablesCommand['-m']
+
+		return breadth
 
 	def getSelectorTuple(self):
 
@@ -554,14 +632,6 @@ class Selector(object):
 
 			# Then, check if they are negated.
 			if self.proto[1] != selector.proto[1]:
-				return False
-
-			# Check source port
-			if (self.proto[2] is not None and selector.proto[2] is None) or (self.proto[2] is not None and selector.proto[2] is None and self.proto[2] != selector.proto[2]):
-				return False
-
-			# Check destination port
-			if (self.proto[3] is not None and selector.proto[3] is None) or (self.proto[3] is not None and selector.proto[3] is None and self.proto[3] != selector.proto[3]):
 				return False
 
 		for matchKey in self.matches:
@@ -784,7 +854,8 @@ class Rule(object):
 	def __init__(self, table = None, chain = None):
 		self.selector = Selector()
 		self.target = Target()
-		self.lineNumber = None
+		self.lineAndFile = []
+		self.breadth = None
 
 		self.table = table
 		self.chain = chain
@@ -808,7 +879,7 @@ class Rule(object):
 		return False
 
 	def initializeFromIPTablesCommand(self, iptablesCommand):
-		self.selector.initializeFromIPTablesCommand(iptablesCommand)
+		self.breadth = self.selector.initializeFromIPTablesCommand(iptablesCommand)
 		self.target.initializeFromIPTablesCommand(iptablesCommand)
 
 class Chain(object):
@@ -830,8 +901,7 @@ class Chain(object):
 
 	def insertRule(self, iptablesCommand, lineNumber, fileName):
 		rule = Rule(self.table, self.name)
-		rule.lineNumber = lineNumber
-		rule.fileName = fileName
+		rule.lineAndFile.append((fileName, lineNumber))
 		rule.initializeFromIPTablesCommand(iptablesCommand)
 		self.rules.insert(iptablesCommand['-I'][1], rule)
 
@@ -839,16 +909,15 @@ class Chain(object):
 			self.rulesBySourceAddress[rule.selector.src] = []
 		self.rulesBySourceAddress[rule.selector.src].append(rule)
 
-		if not self.rulesByDestinationAddress.has_key(rule.selector.src):
-			self.rulesByDestinationAddress[rule.selector.src] = []
-		self.rulesByDestinationAddress[rule.selector.src].append(rule)
+		if not self.rulesByDestinationAddress.has_key(rule.selector.dst):
+			self.rulesByDestinationAddress[rule.selector.dst] = []
+		self.rulesByDestinationAddress[rule.selector.dst].append(rule)
 
 		return rule
 
 	def appendRule(self, iptablesCommand, lineNumber, fileName):
 		rule = Rule(self.table, self.name)
-		rule.lineNumber = lineNumber
-		rule.fileName = fileName
+		rule.lineAndFile.append((fileName, lineNumber))
 		rule.initializeFromIPTablesCommand(iptablesCommand)
 		self.rules.append(rule)
 
@@ -856,9 +925,9 @@ class Chain(object):
 			self.rulesBySourceAddress[rule.selector.src] = []
 		self.rulesBySourceAddress[rule.selector.src].append(rule)
 
-		if not self.rulesByDestinationAddress.has_key(rule.selector.src):
-			self.rulesByDestinationAddress[rule.selector.src] = []
-		self.rulesByDestinationAddress[rule.selector.src].append(rule)
+		if not self.rulesByDestinationAddress.has_key(rule.selector.dst):
+			self.rulesByDestinationAddress[rule.selector.dst] = []
+		self.rulesByDestinationAddress[rule.selector.dst].append(rule)
 
 		return rule
 
@@ -877,6 +946,7 @@ class Table(object):
 
 		# Indexes that group rules by different attributes
 		self.rulesBySourceAddress = {}
+		self.rulesByDestinationAddress = {}
 
 	def parseIPTablesCommand(self, iptablesCommand, lineNumber = None, fileName = None):
 
@@ -897,9 +967,15 @@ class Table(object):
 			rule = self.chains[iptablesCommand['-I'][0]].insertRule(iptablesCommand, lineNumber, fileName)
 			del iptablesCommand['-I']
 
+			# FIXME: Inserting should put it into the first position!!!
+			# Also, if there is an index, it has to be taken into account too!
 			if not self.rulesBySourceAddress.has_key(rule.selector.src):
 				self.rulesBySourceAddress[rule.selector.src] = []
 			self.rulesBySourceAddress[rule.selector.src].append(rule)
+
+			if not self.rulesByDestinationAddress.has_key(rule.selector.dst):
+				self.rulesByDestinationAddress[rule.selector.dst] = []
+			self.rulesByDestinationAddress[rule.selector.dst].append(rule)
 
 		elif iptablesCommand.has_key('-A'):
 
@@ -909,6 +985,10 @@ class Table(object):
 			if not self.rulesBySourceAddress.has_key(rule.selector.src):
 				self.rulesBySourceAddress[rule.selector.src] = []
 			self.rulesBySourceAddress[rule.selector.src].append(rule)
+
+			if not self.rulesByDestinationAddress.has_key(rule.selector.dst):
+				self.rulesByDestinationAddress[rule.selector.dst] = []
+			self.rulesByDestinationAddress[rule.selector.dst].append(rule)
 
 		elif iptablesCommand.has_key('-F'):
 
@@ -928,25 +1008,43 @@ class Table(object):
 
 		return rule
 
-	def getFlattenedRules(self, chain):
+	def _flattenRule(self, rule, subrule, supressErrors):
+
+		try:
+
+			clonedRule = Rule()
+			clonedRule.breadth = rule.breadth + subrule.breadth
+			clonedRule.totalBreadth = rule.breadth + subrule.breadth
+			clonedRule.selector = rule.selector.intersect(subrule.selector)
+			clonedRule.target = subrule.target
+			clonedRule.lineAndFile = rule.lineAndFile + subrule.lineAndFile
+
+			if subrule.final:
+				yield clonedRule
+				return
+
+		except ContradictingParameters, err:
+			if not supressErrors:
+				print "Error in rules in {} and {}".format(rule.lineAndFile, subrule.lineAndFile)
+			return
+
+		for subsubrule in self.chains[subrule.target.name].rules:
+			for flattenedRule in self._flattenRule(clonedRule, subsubrule, supressErrors):
+				yield flattenedRule
+
+
+	def getFlattenedRules(self, chain, supressErrors = False):
 
 		for rule in self.chains[chain].rules:
 
 			if rule.final:
+				rule.totalBreadth = rule.breadth
 				yield rule
 				continue
 
 			for subrule in self.chains[rule.target.name].rules:
-
-				try:
-					clonedRule = Rule()
-					clonedRule.selector = rule.selector.intersect(subrule.selector)
-					clonedRule.target = subrule.target
-				except Exception as detail:
-					print "Error in rules in lines {}:{} and {}:{}".format(rule.fileName, rule.lineNumber, subrule.fileName, subrule.lineNumber)
-					continue
-
-				yield clonedRule
+				for flattenedRule in self._flattenRule(rule, subrule, supressErrors):
+					yield flattenedRule
 
 class Firewall(object):
 
@@ -978,6 +1076,19 @@ class Firewall(object):
 				elif elements[0] == '--dport':
 					elements.pop(0)
 					match['--dport'] = elements.pop(0)
+				else:
+					break
+
+		elif matchType  == 'mac':
+
+			while True and len(elements) > 0:
+
+				if elements[0] == '--mac-source':
+					elements.pop(0)
+					match['--mac-source'] = elements.pop(0)
+				elif elements[0] == '--mac-destination':
+					elements.pop(0)
+					match['--mac-destination'] = elements.pop(0)
 				else:
 					break
 
@@ -1120,20 +1231,11 @@ class Firewall(object):
 
 			elif key == '-p':
 				protocol = elements.pop(0)
-				iptablesCommand['-p'] = [protocol, nonnegate, None, None]
-				while len(elements) > 0:
+				iptablesCommand['-p'] = (protocol, nonnegate)
 
-					if elements[0] == '--sport':
-						elements.pop(0)
-						iptablesCommand['-p'][2] = elements.pop(0)
-						continue
-
-					if elements[0] == '--dport':
-						elements.pop(0)
-						iptablesCommand['-p'][3] = elements.pop(0)
-						continue
-
-					break
+				if elements[0] != '-m':
+					elements.insert(0, protocol)
+					elements.insert(0, '-m')
 
 			elif key == '-j':
 				targetType = elements.pop(0)
@@ -1184,9 +1286,9 @@ class Firewall(object):
 				self.rulesBySourceAddress[rule.selector.src] = []
 			self.rulesBySourceAddress[rule.selector.src].append(rule)
 
-			if not self.rulesByDestinationAddress.has_key(rule.selector.src):
-				self.rulesByDestinationAddress[rule.selector.src] = []
-			self.rulesByDestinationAddress[rule.selector.src].append(rule)
+			if not self.rulesByDestinationAddress.has_key(rule.selector.dst):
+				self.rulesByDestinationAddress[rule.selector.dst] = []
+			self.rulesByDestinationAddress[rule.selector.dst].append(rule)
 
 def checkContradictingRules(firewall):
 	"""
@@ -1228,7 +1330,7 @@ def checkSupersetRules(firewall):
 				for idx2 in xrange(idx + 1, numRules):
 					compRule = firewall.tables[table].chains[chain].rules[idx2]
 					if baseRule > compRule:
-						print "Superset rule in line {}:{} over rule in line {}:{}".format(baseRule.fileName, baseRule.lineNumber, compRule.fileName, compRule.lineNumber)
+						print "Superset rule in {} over rule in {}".format(baseRule.lineAndFile, compRule.lineAndFile)
 
 def dumpAllChains(firewall):
 	"""
@@ -1239,18 +1341,40 @@ def dumpAllChains(firewall):
 		for chain in firewall.tables[table].chains:
 			print "\t", chain
 
-def dumpAllRulesPerChainAndTable(firewall):
+def checkNetworkMasks(firewall):
+	"""
+	This method checks networks and IP addresses for mistakes liek the
+	following ones:
+
+		192.168.1.1/0
+		192.168.1.0/16
+
+	It is obvious that there is an error in the previous specifications.
+	"""
+	for table in firewall.tables:
+		for chain in firewall.tables[table].chains:
+			for rule in firewall.tables[table].chains[chain].rules:
+				if rule.selector.src and str(rule.selector.src[0]) != str(rule.selector.src[0].masked()):
+					print "Suspicious src '{}' in {}".format(rule.selector.src[0], rule.lineAndFile)
+
+				if rule.selector.dst and str(rule.selector.dst[0]) != str(rule.selector.dst[0].masked()):
+					print "Suspicious dst '{}' in {}".format(rule.selector.dst[0], rule.lineAndFile)
+
+def dumpAllRulesPerChainAndTable(firewall, CSV = False):
 	"""
 	This method dumps all rules grouped by chains and rules
 	"""
 	for table in firewall.tables:
-		print table
+		if not CSV: print table
 		for chain in firewall.tables[table].chains:
-			print "\t{}".format(chain)
+			if not CSV: print "\t{}".format(chain)
 			for rule in firewall.tables[table].chains[chain].rules:
-				print "\t\t{:5}: {}".format(rule.lineNumber, rule)
+				if CSV:
+					print "{},{},{}".format(rule.lineNumber, rule.breadth, rule)
+				else:
+					print "\t\t{:5} ({}): {}".format(rule.lineNumber, rule.breadth, rule)
 
-def dumpAllFlattenedRules(firewall):
+def dumpAllFlattenedRules(firewall, CSV = False):
 	"""
 	Flattens and dumps all rules so that all of them appear as if in
 	built in chains. This can catch contradictions, i.e. rule in a
@@ -1259,12 +1383,15 @@ def dumpAllFlattenedRules(firewall):
 	"""
 
 	for table in firewall.tables:
-		print "{}".format(table)
+		if not CSV: print "{}".format(table)
 		for chain in firewall.tables[table].builtInChains:
-			print "\t{}".format(chain)
-			for flattenedRule in firewall.tables[table].getFlattenedRules(chain):
-				print "\t\t", flattenedRule
-			print
+			if not CSV: print "\t{}".format(chain)
+			for flattenedRule in firewall.tables[table].getFlattenedRules(chain, CSV):
+				if CSV:
+					print "{},{},{}".format(flattenedRule.totalBreadth, flattenedRule.lineAndFile, flattenedRule)
+				else:
+					print "\t\t({}) {} {}".format(flattenedRule.totalBreadth, flattenedRule.lineAndFile, flattenedRule)
+			if not CSV: print
 
 def dumpAllRulesBySourceAddress(firewall):
 	"""
@@ -1277,11 +1404,11 @@ def dumpAllRulesBySourceAddress(firewall):
 
 def dumpAllRulesByDestinationAddress(firewall):
 	"""
-	Dump all rules grouped by a source address
+	Dump all rules grouped by a destination address
 	"""
-	for source in firewall.rulesByDestinationAddress:
-		print source
-		for rule in firewall.rulesByDestinationAddress[source]:
+	for destination in firewall.rulesByDestinationAddress:
+		print destination
+		for rule in firewall.rulesByDestinationAddress[destination]:
 			print "\t{}".format(rule)
 
 def main(fwFileNames):
@@ -1302,26 +1429,29 @@ def main(fwFileNames):
 					print "Parsing error '{}' in line {}:{}".format(detail, fwFileName, lineNumber)
 					sys.exit(1)
 
-	dumpAllRulesPerChainAndTable(firewall)
-
+	#dumpAllRulesPerChainAndTable(firewall)
 	#dumpAllRulesBySourceAddress(firewall)
+	#dumpAllRulesByDestinationAddress(firewall)
+	#dumpAllRulesPerChainAndTable(firewall)
+	#dumpAllRulesPerChainAndTable(firewall, CSV = True)
+	#dumpAllFlattenedRules(firewall, CSV = True)
+
+	print
+	print "Checking contradicting rules"
+	print "============================"
+	checkNetworkMasks(firewall)
 	print
 	print "Checking contradicting rules"
 	print "============================"
 	checkContradictingRules(firewall)
-	#dumpAllRulesPerChainAndTable(firewall)
 	print
 	print "Checking duplicate rules"
 	print "========================"
 	checkDuplicateRules(firewall)
 	print
 	print "Checking overlapping rules"
-	print "========================"
+	print "=========================="
 	checkSupersetRules(firewall)
-	print
-
-	#print firewall.getAllInputInterfaces().keys()
-	#print firewall.getAllOutputInterfaces().keys()
 
 if __name__ == '__main__':
 	if len(sys.argv) < 2:

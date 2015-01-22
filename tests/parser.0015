@@ -1,1 +1,4 @@
+# This is a simple test for a parser. No error expected here!
+#
+
 iptables -A INPUT -t filter ! -s 222.111.111.222 -p tcp --dport 23 -j REJECT

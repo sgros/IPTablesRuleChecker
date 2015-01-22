@@ -1,0 +1,64 @@
+To pin point to broad rules in scope, we are using scoring system in
+which higher number means a narrower scope of a rule. So, after scoring
+all the rules and sorting them in ascending order, you have rules ordered
+from the most broad ones, to the most narrower ones.
+
+For each selector some value is added. The trick is to define how much to
+add. In the first iteration, the following values were added for each
+rule (if they existed):
+
+	-o			100
+	-i			100
+	-s			prefixlen
+	-d			prefixlen
+	-p			100
+	-m tcp			100
+		--dport		1000
+		--sport		1000
+	-m udp			100
+		--dport		1000
+		--sport		1000
+	-m multiport		0 [ there is an error for ports defined as low:high]
+		--sports	1000 / number_of_ports
+		--dports	1000 / number_of_ports
+	-m state		0
+		--states	1000 / number_of_states
+	-m icmp			100
+		--icmp-type	100
+	-m limit		1
+	-m esp			100
+
+This wasn't good because, e.g. rules with -i option were rated as better
+than the ones with -s. So, the following requirement was introduced:
+
+	When -s has 0 netmask, it has to be scored worse than -i. When the
+	netmask grows, the scoring has to improve.
+
+Next scoring system was:
+
+	-o			100
+	-i			100
+	-s			prefixlen * 10
+	-d			prefixlen * 10
+	-p			100
+	-m tcp			100
+		--dport		1000
+		--sport		1000
+	-m udp			100
+		--dport		1000
+		--sport		1000
+	-m multiport		0 [ there is an error for ports defined as low:high]
+		--sports	1000 / number_of_ports
+		--dports	1000 / number_of_ports
+	-m state		0
+		--states	1000 / number_of_states
+	-m icmp			100
+		--icmp-type	100
+	-m limit		1
+	-m esp			100
+
+TODO:
+	What about the order of rules? Is it important? How? And how much?
+
+	Maybe to take into account trustwortheness of a network when scoring
+	-i, -o, -s and -d?

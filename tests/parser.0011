@@ -1,2 +1,5 @@
+# This is a simple test for a parser. No error expected here!
+#
+
 iptables -A INPUT -m mac --mac-source 00:e0:4c:f1:41:6b -p tcp --dport ssh -j ACCEPT
 iptables -A INPUT -p tcp --dport ssh -j REJECT

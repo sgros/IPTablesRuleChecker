@@ -1,1 +1,4 @@
+# This is a simple test for a parser. No error expected here!
+#
+
 iptables -A INPUT -t filter -m iprange ! --src-range 10.1.1.90-10.1.1.100  -p tcp --dport 22 -j REJECT

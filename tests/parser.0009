@@ -1,3 +1,6 @@
+# This is a simple test for a parser. No error expected here!
+#
+
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -p tcp --dport ssh -j ACCEPT
 iptables -A INPUT -j REJECT

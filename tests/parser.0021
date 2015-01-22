@@ -1,1 +1,4 @@
+# This is a simple test for a parser. No error expected here!
+#
+
 iptables -A LOGGING -m limit --limit 2/min -j LOG --log-prefix "IPTables Packet Dropped: " --log-level 7

@@ -1,0 +1,5 @@
+# No errors expected in this case
+
+/sbin/iptables -N vlan1
+/sbin/iptables -I FORWARD -i vlan1 -m tcp --dport 22 -j vlan1
+/sbin/iptables -I vlan1 -s 1.1.1.1 -d 2.2.2.2 -p tcp -m udp --dport 22 -j ACCEPT
