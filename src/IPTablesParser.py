@@ -1550,14 +1550,25 @@ def dumpAllRulesByDestinationAddress(firewall):
 		for rule in firewall.rulesByDestinationAddress[destination]:
 			print "\t{}".format(rule)
 
-def main(fwFileNames):
+def main():
+
+	import argparse
+
+	parser = argparse.ArgumentParser(description='IPTables Firewall checker')
+	parser.add_argument('files', metavar='file', type=str, nargs='+', help='files with firewall rules')
+	parser.add_argument('-c', '--iptables-cli', action='store_true', help='assume input files are in iptables command line format (default)')
+	parser.add_argument('-s', '--iptables-save', action='store_true', help='assume input files are in iptables-save format')
+
+	args = parser.parse_args()
 
 	firewall = Firewall()
 
-	for fwFileName in fwFileNames:
+	for fwFileName in args.files:
 		with open(fwFileName) as f:
-#			firewall.addIPTablesLoadCLIStream(fwFileName, f)
-			firewall.addIPTablesLoadSavedStream(fwFileName, f)
+			if args.iptables_save:
+				firewall.addIPTablesLoadSavedStream(fwFileName, f)
+			else:
+				firewall.addIPTablesLoadCLIStream(fwFileName, f)
 
 	#dumpAllRulesPerChainAndTable(firewall)
 	#dumpAllRulesBySourceAddress(firewall)
@@ -1584,8 +1595,4 @@ def main(fwFileNames):
 	checkSupersetRules(firewall)
 
 if __name__ == '__main__':
-	if len(sys.argv) < 2:
-		print "Usage: {} <file1> [<file2> [<file3> [ ... ]]]".format(sys.argv[0])
-		sys.exit(1)
-
-	main(sys.argv[1:])
+	main()
