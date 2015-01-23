@@ -370,7 +370,14 @@ class MatchMAC(Match):
 	idx = "MAC"
 
 	def __str__(self):
-		return "-m mac --mac-source {} --mac-destination {}".format(self.mac_src, self.mac_dst)
+		retVal = "-m mac"
+		if self.mac_src is not None:
+			retVal += " --mac-source {}".format(self.mac_src)
+
+		if self.mac_dst is not None:
+			retVal += " --mac-destination {}".format(self.mac_dst)
+
+		return retVal
 
 	def __lt__(self, match):
 		raise
@@ -385,17 +392,17 @@ class MatchMAC(Match):
 
 		super(MatchMAC, self).__init__(elements)
 
-		self.src = None
-		self.dst = None
+		self.mac_src = None
+		self.mac_dst = None
 
 		self.breadth = 1
 
 		if elements.has_key('--mac-source'):
-			self.limit = elements['--mac-source']
+			self.mac_src = elements['--mac-source']
 			del elements['--mac-source']
 
 		if elements.has_key('--mac-destination'):
-			self.limit_burst = elements['--mac-destination']
+			self.mac_dst = elements['--mac-destination']
 			del elements['--mac-destination']
 
 		if len(elements) > 0:
@@ -489,6 +496,60 @@ class MatchString(Match):
 	def getMatch(self):
 		return [self.name]
 
+class MatchIPRange(Match):
+
+	idx = "IPRANGE"
+
+	def __str__(self):
+		return "-m iprange --src-range {} --dst-range {}".format(self.src_range, self.dst_range)
+
+	def __lt__(self, match):
+		"""
+		Compute if
+
+			self < match
+
+		i.e. if we are more general version of match
+
+		Since this match is either equal or not, i.e. there is no _lt_ and _gt_
+		it always returns False. Note that I assume self has a string match,
+		otherwise, 
+		"""
+		raise
+
+	def __gt_(self, match):
+		raise
+
+	def __eq__(self, match):
+		return self.src_range == match.src_range and self.dst_range == match.dst_range
+
+	def __ne__(self, match):
+		raise
+
+	def __init__(self, elements):
+
+		super(MatchIPRange, self).__init__(elements)
+
+		self.breadth = 100
+
+		if elements.has_key('--src-range'):
+			self.src_range = elements['--src-range']
+			del elements['--src-range']
+		else:
+			self.src_range = None
+
+		if elements.has_key('--dst-range'):
+			self.dst_range = elements['--dst-range']
+			del elements['--dst-range']
+		else:
+			self.dst_range = None
+
+		if len(elements) > 0:
+			raise Exception("Unparsed state options {}".format(elements))
+
+	def getMatch(self):
+		return [self.name]
+
 class Selector(object):
 
 	def __str__(self):
@@ -549,6 +610,8 @@ class Selector(object):
 			return MatchMAC(elements)
 		elif elements['name'] == 'string':
 			return MatchString(elements)
+		elif elements['name'] == 'iprange':
+			return MatchIPRange(elements)
 		else:
 			raise Exception("Unparsed match {}".format(elements['name']))
 
@@ -1297,6 +1360,30 @@ class Firewall(object):
 
 				if elements[0] == '--to':
 					match['--to'] = elements[1]
+					elements.pop(0)
+					elements.pop(0)
+					continue
+
+				break
+
+		elif matchType == 'iprange':
+
+			negate = False
+			while len(elements) > 0:
+
+				if elements[0] == '!':
+					negate = True
+					elements.pop(0)
+					continue
+
+				if elements[0] == '--src-range':
+					match['--src-range'] = (elements[1], negate)
+					elements.pop(0)
+					elements.pop(0)
+					continue
+
+				if elements[0] == '--dst-range':
+					match['--dst-range'] = (elements[1], negate)
 					elements.pop(0)
 					elements.pop(0)
 					continue
