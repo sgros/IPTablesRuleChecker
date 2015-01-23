@@ -1150,7 +1150,7 @@ class Table(object):
 				yield flattenedRule
 
 
-	def getFlattenedRules(self, chain, supressErrors = False):
+	def getFlattenedRules(self, chain, CSV = False, supressErrors = False):
 
 		for rule in self.chains[chain].rules:
 
@@ -1529,15 +1529,6 @@ def checkSupersetRules(firewall):
 					if baseRule > compRule:
 						print "Superset rule in {} over rule in {}".format(baseRule.lineAndFile, compRule.lineAndFile)
 
-def dumpAllChains(firewall):
-	"""
-	Dump names of all chains in the firewall
-	"""
-	for table in firewall.tables:
-		print table
-		for chain in firewall.tables[table].chains:
-			print "\t", chain
-
 def checkNetworkMasks(firewall):
 	"""
 	This method checks networks and IP addresses for mistakes like the
@@ -1557,6 +1548,18 @@ def checkNetworkMasks(firewall):
 				if rule.selector.dst and str(rule.selector.dst[0]) != str(rule.selector.dst[0].masked()):
 					print "Suspicious dst '{}' in {}".format(rule.selector.dst[0], rule.lineAndFile)
 
+def dumpAllChains(firewall, CSV = False):
+	"""
+	Dump names of all chains in the firewall
+	"""
+	for table in firewall.tables:
+		if not CSV: print table
+		for chain in firewall.tables[table].chains:
+			if CSV:
+				print "{},{}".format(table, chain)
+			else:
+				print "\t{}".format(chain)
+
 def dumpAllRulesPerChainAndTable(firewall, CSV = False):
 	"""
 	This method dumps all rules grouped by chains and rules
@@ -1567,11 +1570,11 @@ def dumpAllRulesPerChainAndTable(firewall, CSV = False):
 			if not CSV: print "\t{}".format(chain)
 			for rule in firewall.tables[table].chains[chain].rules:
 				if CSV:
-					print "{},{},{}".format(rule.lineNumber, rule.breadth, rule)
+					print "{},{},{}".format(rule.lineAndFile, rule.breadth, rule)
 				else:
-					print "\t\t{:5} ({}): {}".format(rule.lineNumber, rule.breadth, rule)
+					print "\t\t{:5} ({}): {}".format(rule.lineAndFile, rule.breadth, rule)
 
-def dumpAllFlattenedRules(firewall, CSV = False):
+def dumpAllFlattenedRules(firewall, CSV = False, suppressErrors = True):
 	"""
 	Flattens and dumps all rules so that all of them appear as if in
 	built in chains. This can catch contradictions, i.e. rule in a
@@ -1583,14 +1586,14 @@ def dumpAllFlattenedRules(firewall, CSV = False):
 		if not CSV: print "{}".format(table)
 		for chain in firewall.tables[table].builtInChains:
 			if not CSV: print "\t{}".format(chain)
-			for flattenedRule in firewall.tables[table].getFlattenedRules(chain, CSV):
+			for flattenedRule in firewall.tables[table].getFlattenedRules(chain, CSV, suppressErrors):
 				if CSV:
 					print "{},{},{}".format(flattenedRule.totalBreadth, flattenedRule.lineAndFile, flattenedRule)
 				else:
 					print "\t\t({}) {} {}".format(flattenedRule.totalBreadth, flattenedRule.lineAndFile, flattenedRule)
 			if not CSV: print
 
-def dumpAllRulesBySourceAddress(firewall):
+def dumpAllRulesBySourceAddress(firewall, CSV = False):
 	"""
 	Dump all rules grouped by a source address
 	"""
@@ -1599,7 +1602,7 @@ def dumpAllRulesBySourceAddress(firewall):
 		for rule in firewall.rulesBySourceAddress[source]:
 			print "\t{}".format(rule)
 
-def dumpAllRulesByDestinationAddress(firewall):
+def dumpAllRulesByDestinationAddress(firewall, CSV = False):
 	"""
 	Dump all rules grouped by a destination address
 	"""
