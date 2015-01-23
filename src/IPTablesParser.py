@@ -75,7 +75,10 @@ class MatchTCP(Match):
 		raise
 
 	def __eq__(self, match):
-		raise
+		return self.sport == match.sport and self.dport == match.dport
+
+	def __ne__(self, match):
+		return self.sport != match.sport or self.dport != match.dport
 
 	def __init__(self, elements):
 
@@ -140,7 +143,10 @@ class MatchUDP(Match):
 		raise
 
 	def __eq__(self, match):
-		raise
+		return self.sport == match.sport and self.dport == match.dport
+
+	def __ne__(self, match):
+		return self.sport != match.sport or self.dport != match.dport
 
 	def __init__(self, elements):
 
@@ -214,7 +220,10 @@ class MatchMultiport(Match):
 		raise
 
 	def __eq__(self, match):
-		raise
+		return set(self.sports) == set(match.sports) and set(self.dports) == set(match.dports)
+
+	def __ne__(self, match):
+		return set(self.sports) != set(match.sports) or set(self.dports) != set(match.dports)
 
 	def __init__(self, elements):
 
@@ -227,14 +236,14 @@ class MatchMultiport(Match):
 			del elements['--sports']
 			self.breadth += 1000 // len(self.sports)
 		else:
-			self.sports = None
+			self.sports = []
 
 		if elements.has_key('--dports'):
 			self.dports = elements['--dports'].split(',')
 			del elements['--dports']
 			self.breadth += 1000 // len(self.dports)
 		else:
-			self.dports = None
+			self.dports = []
 
 		if len(elements) > 0:
 			raise Exception("Unparsed state options {}".format(elements))
@@ -264,7 +273,10 @@ class MatchState(Match):
 		raise
 
 	def __eq__(self, match):
-		raise
+		return set(self.states) == set(match.states)
+
+	def __ne__(self, match):
+		return set(self.states) != set(match.states)
 
 	def __init__(self, elements):
 
@@ -293,6 +305,9 @@ class MatchICMP(Match):
 		raise
 
 	def __eq__(self, match):
+		raise
+
+	def __ne__(self, match):
 		raise
 
 	def __init__(self, elements):
@@ -325,6 +340,9 @@ class MatchLimit(Match):
 		raise
 
 	def __eq__(self, match):
+		raise
+
+	def __ne__(self, match):
 		raise
 
 	def __init__(self, elements):
@@ -360,6 +378,9 @@ class MatchMAC(Match):
 	def __eq__(self, match):
 		raise
 
+	def __ne__(self, match):
+		raise
+
 	def __init__(self, elements):
 
 		super(MatchMAC, self).__init__(elements)
@@ -391,6 +412,9 @@ class MatchESP(Match):
 		raise
 
 	def __eq__(self, match):
+		raise
+
+	def __ne__(self, match):
 		raise
 
 	def __init__(self, elements):
@@ -431,6 +455,9 @@ class MatchString(Match):
 
 	def __eq__(self, match):
 		return self.string == match.string and self.algo == match.algo and self.to == match.to
+
+	def __ne__(self, match):
+		raise
 
 	def __init__(self, elements):
 
@@ -628,7 +655,16 @@ class Selector(object):
 
 		return True
 
+	def __ne__(self, match):
+		raise
+
 	def __lt__(self, selector):
+		raise
+
+	def __le__(self, selector):
+		raise
+
+	def __ge__(self, selector):
 		raise
 
 	def __gt__(self, selector):
@@ -637,16 +673,24 @@ class Selector(object):
 
 			self > selector
 
-		i.e. if we are more general than the given selector
+		i.e. if we are more general than the given selector. Note that
+		in the case False is returned, we don't know if selector > self,
+		i.e. it doesn't have to be the case!
 		"""
+
+		# Return FALSE if both selectors are the same
+		if self == selector: return False
 
 		if self.src is not None and selector.src is None:
 			return False
 
+		# FIXME: This has a bug in case range is negated!
 		if self.src is not None and selector.src is not None:
 
 			if self.src[1] != selector.src[1]:
 				return False
+
+			non_negate = self.src[0]
 
 			if not self.src[0].overlaps(selector.src[0]):
 				return False
@@ -660,6 +704,7 @@ class Selector(object):
 		if self.dst is not None and selector.dst is None:
 			return False
 
+		# FIXME: This has a bug in case range is negated!
 		if self.dst is not None and selector.dst is not None:
 
 			if self.dst[1] != selector.dst[1]:
@@ -835,6 +880,9 @@ class Target(object):
 		else:
 			raise Excpetion("Unknown target {}".format(self.name))
 
+	def __ne__(self, match):
+		raise
+
 	def initializeFromIPTablesCommand(self, iptablesCommand):
 
 		target = iptablesCommand['-j'][0]
@@ -931,8 +979,18 @@ class Rule(object):
 
 		return False
 
+	def __ne__(self, match):
+		raise
+
 	def __gt__(self, rule):
-		if self.selector > rule.selector and self.target == rule.target:
+		"""
+		Compute if the following condition hols:
+
+			self > rule
+
+		To be able to compare two rules, their targets have to be the same!
+		"""
+		if self.target == rule.target and  self.selector > rule.selector:
 			return True
 
 		return False
@@ -1558,6 +1616,9 @@ def main():
 	parser.add_argument('files', metavar='file', type=str, nargs='+', help='files with firewall rules')
 	parser.add_argument('-c', '--iptables-cli', action='store_true', help='assume input files are in iptables command line format (default)')
 	parser.add_argument('-s', '--iptables-save', action='store_true', help='assume input files are in iptables-save format')
+	parser.add_argument('-a', '--check-all', action='store_true', help='perform all checks')
+	parser.add_argument('-d', '--dump-all', action='store_true', help='dump all data in different views')
+	parser.add_argument('--dump-csv-format', action='store_true', help='dump is in CSV format')
 
 	args = parser.parse_args()
 
@@ -1570,29 +1631,52 @@ def main():
 			else:
 				firewall.addIPTablesLoadCLIStream(fwFileName, f)
 
-	#dumpAllRulesPerChainAndTable(firewall)
-	#dumpAllRulesBySourceAddress(firewall)
-	#dumpAllRulesByDestinationAddress(firewall)
-	#dumpAllRulesPerChainAndTable(firewall)
-	#dumpAllRulesPerChainAndTable(firewall, CSV = True)
-	#dumpAllFlattenedRules(firewall, CSV = True)
+	if args.dump_all:
+		print "Dumping all rules organized per chain and per table"
+		print "==================================================="
+		dumpAllRulesPerChainAndTable(firewall, args.dump_csv_format)
+		print
 
-	print
-	print "Check network masks"
-	print "============================"
-	checkNetworkMasks(firewall)
-	print
-	print "Checking contradicting rules"
-	print "============================"
-	checkContradictingRules(firewall)
-	print
-	print "Checking duplicate rules"
-	print "========================"
-	checkDuplicateRules(firewall)
-	print
-	print "Checking overlapping rules"
-	print "=========================="
-	checkSupersetRules(firewall)
+	if args.dump_all:
+		print "Dumping all rules organized per source address/network in rule"
+		print "=============================================================="
+		dumpAllRulesBySourceAddress(firewall, args.dump_csv_format)
+		print
+
+	if args.dump_all:
+		print "Dumping all rules organized per destination address/network in rule"
+		print "==================================================================="
+		dumpAllRulesByDestinationAddress(firewall, args.dump_csv_format)
+		print
+
+	if args.dump_all:
+		print "Dumping all rules flattened into builtin chains"
+		print "==============================================="
+		dumpAllFlattenedRules(firewall, args.dump_csv_format)
+		print
+
+	if args.check_all:
+		print "Check network masks"
+		print "==================="
+		checkNetworkMasks(firewall)
+		print
+
+	if args.check_all:
+		print "Checking contradicting rules"
+		print "============================"
+		checkContradictingRules(firewall)
+		print
+
+	if args.check_all:
+		print "Checking duplicate rules"
+		print "========================"
+		checkDuplicateRules(firewall)
+		print
+
+	if args.check_all:
+		print "Checking overlapping rules"
+		print "=========================="
+		checkSupersetRules(firewall)
 
 if __name__ == '__main__':
 	main()
