@@ -1,4 +1,4 @@
 # This is a simple test for a parser. No error expected here!
 #
 
-iptables -A INPUT -s facebook.com -p tcp --sport www -j DROP
+iptables -A INPUT -s 173.252.120.6 -p tcp --sport www -j DROP

@@ -824,9 +824,13 @@ class Target(object):
 
 		if self.name == 'SNAT':
 			ret = "-j SNAT --to-source " + str(self.to_source)
+			if self.to_source_port:
+				ret += ":" + self.to_source_port
 
 		elif self.name == 'DNAT':
 			ret = "-j DNAT --to-destination " + str(self.to_destination)
+			if self.to_destination_port:
+				ret += ":" + self.to_destination_port
 
 		elif self.name == 'REJECT':
 
@@ -853,10 +857,10 @@ class Target(object):
 			return True
 
 		elif self.name == 'SNAT':
-			return self.to_source == target.to_source
+			return self.to_source == target.to_source and self.to_source_port == target.to_source_port
 
 		elif self.name == 'DNAT':
-			return self.to_destination == target.to_destination
+			return self.to_destination == target.to_destination and self.to_destination_port == target.to_destination_port
 
 		elif self.name == 'REJECT':
 			return self.log_prefix == target.log_prefix
@@ -897,14 +901,32 @@ class Target(object):
 
 		elif self.name == 'SNAT':
 
-			self.to_source = ipaddr.IPAddress(target['--to-source'])
+			ip = target['--to-source']
 			del target['--to-source']
+
+			self.to_source_port = None
+			try:
+				self.to_source_port = ip[ip.rindex(':')+1:]
+				ip = ip[:ip.rindex(':')]
+			except:
+				pass
+
+			self.to_source = ipaddr.IPAddress(ip)
 			self.final = True
 
 		elif self.name == 'DNAT':
 
-			self.to_destination = ipaddr.IPAddress(target['--to-destination'])
+			ip = target['--to-destination']
 			del target['--to-destination']
+
+			self.to_destination_port = None
+			try:
+				self.to_destination_port = ip[ip.rindex(':')+1:]
+				ip = ip[:ip.rindex(':')]
+			except:
+				pass
+
+			self.to_destination = ipaddr.IPAddress(ip)
 			self.final = True
 
 		elif self.name == 'REJECT':
@@ -1299,8 +1321,11 @@ class Firewall(object):
 			if elements[0] == '--to-destination':
 				elements.pop(0)
 				target['--to-destination'] = elements.pop(0)
+			elif elements[0] == '--to':
+				elements.pop(0)
+				target['--to-destination'] = elements.pop(0)
 			else:
-				raise ParsingException("Expected --to-destination argument")
+				raise ParsingException("Expected --to-destination/--to argument")
 
 		elif targetType == 'SNAT':
 
@@ -1622,64 +1647,81 @@ def main():
 	parser.add_argument('-a', '--check-all', action='store_true', help='perform all checks')
 	parser.add_argument('-d', '--dump-all', action='store_true', help='dump all data in different views')
 	parser.add_argument('--dump-csv-format', action='store_true', help='dump is in CSV format')
+	parser.add_argument('-m', '--merge', action='store_true', help='should all input files be merged (default: process separately)')
 
 	args = parser.parse_args()
 
-	firewall = Firewall()
-
 	for fwFileName in args.files:
-		with open(fwFileName) as f:
-			if args.iptables_save:
-				firewall.addIPTablesLoadSavedStream(fwFileName, f)
-			else:
-				firewall.addIPTablesLoadCLIStream(fwFileName, f)
 
-	if args.dump_all:
-		print "Dumping all rules organized per chain and per table"
-		print "==================================================="
-		dumpAllRulesPerChainAndTable(firewall, args.dump_csv_format)
-		print
+		firewall = Firewall()
 
-	if args.dump_all:
-		print "Dumping all rules organized per source address/network in rule"
-		print "=============================================================="
-		dumpAllRulesBySourceAddress(firewall, args.dump_csv_format)
-		print
+		if args.merge:
 
-	if args.dump_all:
-		print "Dumping all rules organized per destination address/network in rule"
-		print "==================================================================="
-		dumpAllRulesByDestinationAddress(firewall, args.dump_csv_format)
-		print
+			for fwFileName in args.files:
+				with open(fwFileName) as f:
+					if args.iptables_save:
+						firewall.addIPTablesLoadSavedStream(fwFileName, f)
+					else:
+						firewall.addIPTablesLoadCLIStream(fwFileName, f)
 
-	if args.dump_all:
-		print "Dumping all rules flattened into builtin chains"
-		print "==============================================="
-		dumpAllFlattenedRules(firewall, args.dump_csv_format)
-		print
+		else:
 
-	if args.check_all:
-		print "Check network masks"
-		print "==================="
-		checkNetworkMasks(firewall)
-		print
+			print "Processing file {}".format(fwFileName)
 
-	if args.check_all:
-		print "Checking contradicting rules"
-		print "============================"
-		checkContradictingRules(firewall)
-		print
+			with open(fwFileName) as f:
+				if args.iptables_save:
+					firewall.addIPTablesLoadSavedStream(fwFileName, f)
+				else:
+					firewall.addIPTablesLoadCLIStream(fwFileName, f)
 
-	if args.check_all:
-		print "Checking duplicate rules"
-		print "========================"
-		checkDuplicateRules(firewall)
-		print
+		if args.dump_all:
+			print "Dumping all rules organized per chain and per table"
+			print "==================================================="
+			dumpAllRulesPerChainAndTable(firewall, args.dump_csv_format)
+			print
 
-	if args.check_all:
-		print "Checking overlapping rules"
-		print "=========================="
-		checkSupersetRules(firewall)
+		if args.dump_all:
+			print "Dumping all rules organized per source address/network in rule"
+			print "=============================================================="
+			dumpAllRulesBySourceAddress(firewall, args.dump_csv_format)
+			print
+
+		if args.dump_all:
+			print "Dumping all rules organized per destination address/network in rule"
+			print "==================================================================="
+			dumpAllRulesByDestinationAddress(firewall, args.dump_csv_format)
+			print
+
+		if args.dump_all:
+			print "Dumping all rules flattened into builtin chains"
+			print "==============================================="
+			dumpAllFlattenedRules(firewall, args.dump_csv_format)
+			print
+
+		if args.check_all:
+			print "Check network masks"
+			print "==================="
+			checkNetworkMasks(firewall)
+			print
+
+		if args.check_all:
+			print "Checking contradicting rules"
+			print "============================"
+			checkContradictingRules(firewall)
+			print
+
+		if args.check_all:
+			print "Checking duplicate rules"
+			print "========================"
+			checkDuplicateRules(firewall)
+			print
+
+		if args.check_all:
+			print "Checking overlapping rules"
+			print "=========================="
+			checkSupersetRules(firewall)
+
+		if args.merge: break
 
 if __name__ == '__main__':
 	main()
