@@ -23,6 +23,7 @@ import re
 import ipaddr
 import shlex
 import traceback
+import ConfigParser
 from collections import OrderedDict
 
 class ContradictingParameters(Exception): pass
@@ -1097,6 +1098,8 @@ class Chain(object):
 		# Indexes that group rules by different attributes
 		self.rulesBySourceAddress = {}
 		self.rulesByDestinationAddress = {}
+		self.rulesByInputInterface = {}
+		self.rulesByOutputInterface = {}
 
 	def setPolicy(self, policy):
 		self.policy = policy
@@ -1115,6 +1118,14 @@ class Chain(object):
 			self.rulesByDestinationAddress[rule.selector.dst] = []
 		self.rulesByDestinationAddress[rule.selector.dst].append(rule)
 
+		if not self.rulesByInputInterface.has_key(rule.selector.inif):
+			self.rulesByInputInterface[rule.selector.inif] = []
+		self.rulesByInputInterface[rule.selector.inif].append(rule)
+
+		if not self.rulesByOutputInterface.has_key(rule.selector.outif):
+			self.rulesByOutputInterface[rule.selector.outif] = []
+		self.rulesByOutputInterface[rule.selector.outif].append(rule)
+
 		return rule
 
 	def appendRule(self, iptablesCommand, lineNumber, fileName):
@@ -1130,6 +1141,14 @@ class Chain(object):
 		if not self.rulesByDestinationAddress.has_key(rule.selector.dst):
 			self.rulesByDestinationAddress[rule.selector.dst] = []
 		self.rulesByDestinationAddress[rule.selector.dst].append(rule)
+
+		if not self.rulesByInputInterface.has_key(rule.selector.inif):
+			self.rulesByInputInterface[rule.selector.inif] = []
+		self.rulesByInputInterface[rule.selector.inif].append(rule)
+
+		if not self.rulesByOutputInterface.has_key(rule.selector.outif):
+			self.rulesByOutputInterface[rule.selector.outif] = []
+		self.rulesByOutputInterface[rule.selector.outif].append(rule)
 
 		return rule
 
@@ -1149,6 +1168,8 @@ class Table(object):
 		# Indexes that group rules by different attributes
 		self.rulesBySourceAddress = {}
 		self.rulesByDestinationAddress = {}
+		self.rulesByInputInterface = {}
+		self.rulesByOutputInterface = {}
 
 	def parseIPTablesCommand(self, iptablesCommand, lineNumber = None, fileName = None):
 
@@ -1179,6 +1200,14 @@ class Table(object):
 				self.rulesByDestinationAddress[rule.selector.dst] = []
 			self.rulesByDestinationAddress[rule.selector.dst].append(rule)
 
+			if not self.rulesByInputInterface.has_key(rule.selector.inif):
+				self.rulesByInputInterface[rule.selector.inif] = []
+			self.rulesByInputInterface[rule.selector.inif].append(rule)
+
+			if not self.rulesByOutputInterface.has_key(rule.selector.outif):
+				self.rulesByOutputInterface[rule.selector.outif] = []
+			self.rulesByOutputInterface[rule.selector.outif].append(rule)
+
 		elif iptablesCommand.has_key('-A'):
 
 			rule = self.chains[iptablesCommand['-A'][0]].appendRule(iptablesCommand, lineNumber, fileName)
@@ -1191,6 +1220,14 @@ class Table(object):
 			if not self.rulesByDestinationAddress.has_key(rule.selector.dst):
 				self.rulesByDestinationAddress[rule.selector.dst] = []
 			self.rulesByDestinationAddress[rule.selector.dst].append(rule)
+
+			if not self.rulesByInputInterface.has_key(rule.selector.inif):
+				self.rulesByInputInterface[rule.selector.inif] = []
+			self.rulesByInputInterface[rule.selector.inif].append(rule)
+
+			if not self.rulesByOutputInterface.has_key(rule.selector.outif):
+				self.rulesByOutputInterface[rule.selector.outif] = []
+			self.rulesByOutputInterface[rule.selector.outif].append(rule)
 
 		elif iptablesCommand.has_key('-F'):
 
@@ -1262,6 +1299,41 @@ class Firewall(object):
 		# Indexes that group rules by different attributes
 		self.rulesBySourceAddress = {}
 		self.rulesByDestinationAddress = {}
+		self.rulesByInputInterface = {}
+		self.rulesByOutputInterface = {}
+
+	def loadTopologyFromFile(self, topologyFile):
+		"""
+		Load a topology from file
+		"""
+		config = ConfigParser.ConfigParser()
+		config.readfp(topologyFile)
+
+		for section in config.sections():
+			print "[{}]".format(section)
+			for option in config.options(section):
+				print "{}={}".format(option, config.get(section, option))
+
+	def generateTopology(self):
+		"""
+		Generate topology description and return it in a string
+		"""
+		print "[General]"
+		print "description = Automatically generated topology"
+
+		interfaces = set()
+		for interface in self.rulesByInputInterface.keys():
+			if interface is not None: interfaces.add(interface[0])
+
+		for interface in self.rulesByOutputInterface.keys():
+			if interface is not None: interfaces.add(interface[0])
+
+		print "interfaces = {}".format(" ".join(interfaces))
+		print
+
+		for interface in interfaces:
+			print "[{}]".format(interface)
+			print
 
 	def parseMatch(self, matchType, elements):
 
@@ -1495,31 +1567,29 @@ class Firewall(object):
 				iptablesCommand['-j'] = self.parseTarget(targetType, elements)
 
 			elif key == '-P':
-				iptablesCommand[key] = [elements.pop(0), None]
-				iptablesCommand[key][1] = elements.pop(0)
+				iptablesCommand[key] = (elements.pop(0), elements.pop(0))
 
 			elif key == '-F':
 				if len(elements) > 0 and elements[0][0] != '-':
 					iptablesCommand[key] = [elements.pop(0), None]
 				else:
-					iptablesCommand[key] = [None, None]
+					iptablesCommand[key] = (None, None)
 
 			elif key == '-I':
-				iptablesCommand[key] = [elements.pop(0), 0]
+				iptablesCommand[key] = (elements.pop(0), 0)
 				if elements[0][0] != '-':
-					iptablesCommand[key][1] = int(elements.pop(0))
+					iptablesCommand[key] = (iptablesCommand[key][0], int(elements.pop(0)))
 
 			else:
-				iptablesCommand[key] = [elements.pop(0), nonnegate]
+				iptablesCommand[key] = (elements.pop(0), nonnegate)
 				if len(elements) > 0:
 					param = iptablesCommand[key][0]
 					if param[-1] == '!':
-						iptablesCommand[key][1] = False
-						iptablesCommand[key][0] = elements.pop(0)
+						iptablesCommand[key] = (elements.pop(0), False)
 					else:
 						nextToken = elements.pop(0)
 						if nextToken[0] != '-':
-							iptablesCommand[key][1] = nextToken
+							iptablesCommand[key] = (iptablesCommand[key][0], nextToken)
 						else:
 							elements.insert(0, nextToken)
 
@@ -1542,6 +1612,14 @@ class Firewall(object):
 			if not self.rulesByDestinationAddress.has_key(rule.selector.dst):
 				self.rulesByDestinationAddress[rule.selector.dst] = []
 			self.rulesByDestinationAddress[rule.selector.dst].append(rule)
+
+			if not self.rulesByInputInterface.has_key(rule.selector.inif):
+				self.rulesByInputInterface[rule.selector.inif] = []
+			self.rulesByInputInterface[rule.selector.inif].append(rule)
+
+			if not self.rulesByOutputInterface.has_key(rule.selector.outif):
+				self.rulesByOutputInterface[rule.selector.outif] = []
+			self.rulesByOutputInterface[rule.selector.outif].append(rule)
 
 	def addIPTablesLoadSavedStream(self, fileName, stream):
 		"""
@@ -1723,24 +1801,46 @@ def dumpAllRulesByDestinationAddress(firewall, CSV = False):
 		for rule in firewall.rulesByDestinationAddress[destination]:
 			print "\t{}".format(rule)
 
+def dumpAllRulesByInputInterface(firewall, CSV = False):
+	"""
+	Dump all rules grouped by input interface
+	"""
+	for inif in firewall.rulesByInputInterface:
+		print inif
+		for rule in firewall.rulesByInputInterface[inif]:
+			print "\t{}".format(rule)
+
+def dumpAllRulesByOutputInterface(firewall, CSV = False):
+	"""
+	Dump all rules grouped by input interface
+	"""
+	for outif in firewall.rulesByOutputInterface:
+		print outif
+		for rule in firewall.rulesByOutputInterface[outif]:
+			print "\t{}".format(rule)
+
 def main():
 
 	import argparse
 
 	parser = argparse.ArgumentParser(description='IPTables Firewall checker')
 	parser.add_argument('files', metavar='file', type=str, nargs='+', help='files with firewall rules')
-	parser.add_argument('-c', '--iptables-cli', action='store_true', help='assume input files are in iptables command line format (default)')
-	parser.add_argument('-s', '--iptables-save', action='store_true', help='assume input files are in iptables-save format')
 	parser.add_argument('-a', '--check-all', action='store_true', help='perform all checks')
+	parser.add_argument('-c', '--iptables-cli', action='store_true', help='assume input files are in iptables command line format (default)')
 	parser.add_argument('-d', '--dump-all', action='store_true', help='dump all data in different views')
-	parser.add_argument('--dump-csv-format', action='store_true', help='dump is in CSV format')
 	parser.add_argument('-m', '--merge', action='store_true', help='should all input files be merged (default: process separately)')
+	parser.add_argument('-s', '--iptables-save', action='store_true', help='assume input files are in iptables-save format')
+	parser.add_argument('-t', '--topology', nargs=1, dest='topology_file', type=file, help='INI file describing topology')
+	parser.add_argument('--dump-csv-format', action='store_true', help='dump is in CSV format')
 
 	args = parser.parse_args()
 
 	for fwFileName in args.files:
 
 		firewall = Firewall()
+
+		if args.topology_file is not None:
+			firewall.loadTopologyFromFile(args.topology_file[0])
 
 		if args.merge:
 
